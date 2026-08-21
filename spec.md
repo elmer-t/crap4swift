@@ -9,7 +9,8 @@ toolchain, and follows the same contract wherever the languages allow.
 It shall:
 
 - locate Swift source files to analyze
-- generate coverage for the owning SwiftPM package of each analyzed file set
+- generate coverage for the owning SwiftPM package of each analyzed file set,
+  or read a coverage export that already exists
 - parse Swift declarations and compute cyclomatic complexity
 - combine complexity and coverage into CRAP scores
 - print a tabular report sorted by worst score first
@@ -23,9 +24,13 @@ This specification defines the command-line contract, source file selection
 rules, coverage generation behavior, declaration parsing behavior, CRAP score
 computation, report ordering and exit codes.
 
-It does not define non-SwiftPM execution (Xcode projects, `.xcresult` bundles),
-support for non-Swift source files, a machine-readable report format, or
-configurable thresholds through the CLI.
+It defines how a project SwiftPM does not build is analyzed: by supplying an
+llvm-cov export produced elsewhere. It does not define how that export is
+produced — driving `xcodebuild`, reading `.xcresult` bundles and choosing a
+binary to export from remain outside the tool.
+
+It does not define support for non-Swift source files, a machine-readable
+report format, or configurable thresholds through the CLI.
 
 ## 3. Terminology
 
@@ -52,6 +57,7 @@ configurable thresholds through the CLI.
 - `crap4swift`
 - `crap4swift --changed`
 - `crap4swift <path...>`
+- `crap4swift --coverage <file>`, combinable with any of the above
 - `crap4swift --help`
 
 ### 4.2 Mode Semantics
@@ -68,6 +74,13 @@ configurable thresholds through the CLI.
   - if it is a directory, analyze all Swift files under that directory's
     `Sources/` subtree
 
+- `--coverage <file>`
+  Score against the llvm-cov JSON export at `<file>` instead of generating
+  coverage. The value may be given as `--coverage <file>` or
+  `--coverage=<file>`, is taken verbatim, and is resolved relative to the
+  project root. Supplying only options selects the same files as supplying no
+  arguments at all.
+
 - `--help`, `-h`
   Print usage text and exit successfully. `--help` takes precedence over any
   other argument.
@@ -75,19 +88,26 @@ configurable thresholds through the CLI.
 ### 4.3 Invalid Usage
 
 The tool shall exit with usage error when argument parsing fails, and shall
-print usage text on CLI usage failure. Unknown options and the combination of
-`--changed` with explicit paths are usage failures.
+print usage text on CLI usage failure. Unknown options, `--coverage` without a
+value, and the combination of `--changed` with explicit paths are usage
+failures. An unreadable or malformed supplied export is an execution failure,
+reported rather than silently scored as `N/A`.
 
 ## 5. File Selection Rules
 
 ### 5.1 Default Source Discovery
 
 In default mode, the tool shall analyze all `.swift` files under
-`<project-root>/Sources/**`.
+`<project-root>/Sources/**`, or, when `<project-root>/Sources` does not exist,
+all `.swift` files under `<project-root>/**`.
 
 `Sources` is the SwiftPM analog of Maven's `src`. Unlike `src`, it does not
 contain test code: `Tests/` is never scanned, because test code is the
-measuring stick rather than the thing measured.
+measuring stick rather than the thing measured. A project laid out without a
+`Sources` directory keeps that promise by other means: directories named
+`Tests` or ending in `Tests` are never descended into, and package manifests
+(`Package.swift`, `Package@swift-*.swift`) are never analyzed, being build
+configuration rather than code under test.
 
 ### 5.2 Changed-File Discovery
 
@@ -105,7 +125,8 @@ In `--changed` mode, the tool shall:
 When explicit paths are supplied:
 
 - file paths shall be analyzed directly
-- directory paths shall be expanded to `.swift` files under `<dir>/Sources/**`
+- directory paths shall be expanded to `.swift` files under `<dir>/Sources/**`,
+  or under `<dir>/**` when `<dir>` has no `Sources` directory
 - duplicates shall be removed
 - the final list shall be sorted in path order
 
@@ -116,7 +137,7 @@ print `No Swift files to analyze.` and exit successfully.
 
 ## 6. Package Grouping
 
-The tool shall group selected files by package root before coverage generation,
+When generating coverage, the tool shall group selected files by package root,
 determining the package root for a file by walking upward from the file's
 directory until a `Package.swift` file is found or the walk leaves the project
 root. If no nearer manifest is found, the project root shall be used.
@@ -125,6 +146,10 @@ Coverage generation and coverage-export lookup shall occur once per package
 group.
 
 ## 7. Coverage Pipeline
+
+Coverage is either supplied (section 7.5) or generated. When it is supplied,
+package grouping and every step below are skipped: the export is read once and
+applied to every selected file.
 
 For each package group, the tool shall:
 
@@ -155,6 +180,27 @@ names a file that does not exist.
 
 If no export can be located or parsed, the tool shall print a warning to stderr
 and coverage for units in that package shall be reported as `N/A`.
+
+### 7.5 Supplied Coverage
+
+When `--coverage <file>` is given, the tool shall:
+
+- read the llvm-cov JSON export at `<file>`, resolved relative to the project
+  root
+- apply it to every selected file, regardless of which package owns them
+- run no test command, and delete no artifacts
+
+An export that cannot be read or parsed shall be reported as an execution
+failure. This differs deliberately from section 7.4: an export the tool went
+looking for and did not find is a warning, while an export named on the command
+line and not found is an error, because scoring every unit `N/A` would answer a
+question the caller did not ask.
+
+The tool shall compare the modification time of each analyzed source file with
+that of the export, and shall warn on stderr when any source is newer. A stale
+export is the failure mode unique to this mode: it keeps producing plausible
+scores for code that has since changed. The warning shall not change the exit
+code, since the scores remain a true statement about the code as measured.
 
 ## 8. Swift Declaration Parsing
 

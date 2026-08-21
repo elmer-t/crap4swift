@@ -24,6 +24,61 @@ final class SourceFileFinderTests: XCTestCase {
         ])
     }
 
+    /// An Xcode project has no `Sources` directory; its code sits in a target
+    /// directory beside a test one.
+    private func makeXcodeStyleProject() throws -> TemporaryDirectory {
+        let directory = try TemporaryDirectory()
+        try directory.write("struct App {}", to: "WadNav/App.swift")
+        try directory.write("struct Deep {}", to: "WadNav/Charts/Deep.swift")
+        try directory.write("struct Case {}", to: "WadNavTests/AppTests.swift")
+        try directory.write("# readme", to: "README.md")
+        return directory
+    }
+
+    func testAProjectWithoutSourcesIsScannedFromItsRoot() throws {
+        let directory = try makeXcodeStyleProject()
+
+        let found = SourceFileFinder().allSourceFiles(projectRoot: directory.path)
+
+        XCTAssertEqual(found, [
+            directory.path("WadNav/App.swift"),
+            directory.path("WadNav/Charts/Deep.swift"),
+        ])
+    }
+
+    func testTestDirectoriesAreNotDescendedIntoWhenScanningFromTheRoot() throws {
+        let directory = try makeXcodeStyleProject()
+
+        let found = SourceFileFinder().allSourceFiles(projectRoot: directory.path)
+
+        XCTAssertFalse(found.contains { $0.contains("WadNavTests") })
+    }
+
+    func testADirectoryArgumentWithoutSourcesExpandsToItself() throws {
+        let directory = try makeXcodeStyleProject()
+
+        let found = SourceFileFinder().expand(paths: ["WadNav"], projectRoot: directory.path)
+
+        XCTAssertEqual(found, [
+            directory.path("WadNav/App.swift"),
+            directory.path("WadNav/Charts/Deep.swift"),
+        ])
+    }
+
+    /// A package that does have `Sources` keeps the old behavior exactly:
+    /// a sibling directory of loose Swift files is not swept in.
+    func testSourcesStillWinsWhenItExists() throws {
+        let directory = try makeProject()
+        try directory.write("struct Loose {}", to: "Scripts/Loose.swift")
+
+        let found = SourceFileFinder().allSourceFiles(projectRoot: directory.path)
+
+        XCTAssertEqual(found, [
+            directory.path("Sources/Lib/A.swift"),
+            directory.path("Sources/Lib/Nested/B.swift"),
+        ])
+    }
+
     func testVendoredDirectoriesAreNotDescendedInto() throws {
         let directory = try makeProject()
         try directory.write("struct Vendored {}", to: "Sources/Lib/Pods/Vendored.swift")
