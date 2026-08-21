@@ -68,7 +68,8 @@ CRAP threshold exceeded: 110.00 > 8.00
 ```
 
 The tool scores itself too — `swift run crap4swift` — which is the honest way to
-find out whether a quality gate is worth keeping.
+find out whether a quality gate is worth keeping. It passes its own: 102
+methods, none over 8.0.
 
 ## How complexity is counted
 

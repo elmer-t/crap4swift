@@ -24,6 +24,18 @@ final class SourceFileFinderTests: XCTestCase {
         ])
     }
 
+    func testVendoredDirectoriesAreNotDescendedInto() throws {
+        let directory = try makeProject()
+        try directory.write("struct Vendored {}", to: "Sources/Lib/Pods/Vendored.swift")
+
+        let found = SourceFileFinder().allSourceFiles(projectRoot: directory.path)
+
+        XCTAssertEqual(found, [
+            directory.path("Sources/Lib/A.swift"),
+            directory.path("Sources/Lib/Nested/B.swift"),
+        ])
+    }
+
     func testMissingSourcesDirectoryYieldsNothing() throws {
         let directory = try TemporaryDirectory()
         XCTAssertEqual(SourceFileFinder().allSourceFiles(projectRoot: directory.path), [])

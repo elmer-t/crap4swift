@@ -41,27 +41,22 @@ public struct CrapAnalyzer {
     /// Worst first. Rows without coverage sort last, since an unknown score is
     /// not evidence of a problem — it is evidence of a gap in the measurement.
     public static func sorted(_ metrics: [MethodMetrics]) -> [MethodMetrics] {
-        metrics.sorted { left, right in
-            let leftScore = left.crap.numericValue
-            let rightScore = right.crap.numericValue
-            if let leftScore, let rightScore {
-                if leftScore != rightScore { return leftScore > rightScore }
-            } else if leftScore != nil {
-                return true
-            } else if rightScore != nil {
-                return false
-            }
-            if left.descriptor.complexity != right.descriptor.complexity {
-                return left.descriptor.complexity > right.descriptor.complexity
-            }
-            if left.descriptor.displayName != right.descriptor.displayName {
-                return left.descriptor.displayName < right.descriptor.displayName
-            }
-            if left.descriptor.filePath != right.descriptor.filePath {
-                return left.descriptor.filePath < right.descriptor.filePath
-            }
-            return left.descriptor.declarationLine < right.descriptor.declarationLine
-        }
+        metrics.sorted { sortKey(of: $0) < sortKey(of: $1) }
+    }
+
+    /// The whole ordering expressed as one comparable key: unscored rows sink,
+    /// worse scores rise, and the remaining ties break deterministically.
+    /// Negation turns "descending" into "ascending" without a second comparator.
+    static func sortKey(of metric: MethodMetrics) -> (Int, Double, Int, String, String, Int) {
+        let score = metric.crap.numericValue
+        return (
+            score == nil ? 1 : 0,
+            -(score ?? 0),
+            -metric.descriptor.complexity,
+            metric.descriptor.displayName,
+            metric.descriptor.filePath,
+            metric.descriptor.declarationLine
+        )
     }
 
     /// The worst numeric score, or `0` when nothing could be scored.

@@ -16,12 +16,18 @@ public enum Crap4SwiftError: Error, Equatable, LocalizedError {
         case .unreadableSource(let path, let reason):
             return "cannot read source file \(path): \(reason)"
         case .coverageCommandFailed(let command, let exitCode, let output):
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let tail = trimmed.isEmpty ? "" : "\n\(trimmed)"
-            return "coverage command failed (exit \(exitCode)): \(command)\(tail)"
+            return "coverage command failed (exit \(exitCode)): \(command)\(Self.quoted(output))"
         case .commandLaunchFailed(let command, let reason):
             return "cannot run \(command): \(reason)"
         }
+    }
+
+    /// Captured command output, appended on its own line, or nothing at all
+    /// when the command had nothing to say.
+    static func quoted(_ output: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return "\n\(trimmed)"
     }
 }
 

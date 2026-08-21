@@ -20,29 +20,48 @@ public enum CliArgumentsParser {
     """
 
     public static func parse(_ arguments: [String]) throws -> CliArguments {
-        if arguments.isEmpty { return CliArguments(mode: .all) }
+        guard !arguments.isEmpty else { return CliArguments(mode: .all) }
+        return CliArguments(mode: try Request(arguments: arguments).mode())
+    }
 
-        var changed = false
-        var paths: [String] = []
+    /// What the argument list said, separated from what it means. Reading and
+    /// judging are two jobs, and keeping them apart is what keeps either one
+    /// small enough to follow.
+    struct Request {
+        private(set) var wantsHelp = false
+        private(set) var wantsChanged = false
+        private(set) var paths: [String] = []
 
-        for argument in arguments {
-            switch argument {
-            case "--help", "-h":
-                return CliArguments(mode: .help)
-            case "--changed":
-                changed = true
-            default:
-                if argument.hasPrefix("-") {
-                    throw Crap4SwiftError.unknownOption(argument)
-                }
-                paths.append(argument)
+        init(arguments: [String]) throws {
+            for argument in arguments {
+                try absorb(argument)
             }
         }
 
-        if changed && !paths.isEmpty {
-            throw Crap4SwiftError.conflictingArguments("--changed cannot be combined with explicit paths")
+        private mutating func absorb(_ argument: String) throws {
+            switch argument {
+            case "--help", "-h":
+                wantsHelp = true
+            case "--changed":
+                wantsChanged = true
+            default:
+                try absorbOperand(argument)
+            }
         }
-        if changed { return CliArguments(mode: .changed) }
-        return CliArguments(mode: .paths(paths))
+
+        private mutating func absorbOperand(_ argument: String) throws {
+            guard !argument.hasPrefix("-") else {
+                throw Crap4SwiftError.unknownOption(argument)
+            }
+            paths.append(argument)
+        }
+
+        func mode() throws -> CliMode {
+            if wantsHelp { return .help }
+            if wantsChanged && !paths.isEmpty {
+                throw Crap4SwiftError.conflictingArguments("--changed cannot be combined with explicit paths")
+            }
+            return wantsChanged ? .changed : .paths(paths)
+        }
     }
 }

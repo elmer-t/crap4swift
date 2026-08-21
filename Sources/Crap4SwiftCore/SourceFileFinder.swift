@@ -44,32 +44,38 @@ public struct SourceFileFinder {
     }
 
     func swiftFiles(under directory: String) -> [String] {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return []
-        }
-        guard let enumerator = fileManager.enumerator(
-            at: URL(fileURLWithPath: directory),
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        guard let walk = makeEnumerator(for: directory) else { return [] }
 
         var found: [String] = []
-        for case let url as URL in enumerator {
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            if isDir {
-                if Self.skippedDirectories.contains(url.lastPathComponent) {
-                    enumerator.skipDescendants()
-                }
-                continue
-            }
-            if url.pathExtension == "swift" {
+        for case let url as URL in walk {
+            if isDirectory(url) {
+                skipDescendantsIfExcluded(url, in: walk)
+            } else if url.pathExtension == "swift" {
                 found.append(Self.normalized(url.path))
             }
         }
         return Self.deduplicatedAndSorted(found)
+    }
+
+    private func makeEnumerator(for directory: String) -> FileManager.DirectoryEnumerator? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return fileManager.enumerator(
+            at: URL(fileURLWithPath: directory),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+    }
+
+    private func skipDescendantsIfExcluded(_ url: URL, in walk: FileManager.DirectoryEnumerator) {
+        guard Self.skippedDirectories.contains(url.lastPathComponent) else { return }
+        walk.skipDescendants()
     }
 
     static func deduplicatedAndSorted(_ paths: [String]) -> [String] {
