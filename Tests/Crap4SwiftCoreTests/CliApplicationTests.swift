@@ -129,6 +129,116 @@ final class CliApplicationTests: XCTestCase {
         XCTAssertFalse(harness.errors.contains("threshold exceeded"))
     }
 
+    // MARK: - Supplied coverage
+
+    /// An Xcode-shaped project: no `Package.swift`, no `Sources`, and an
+    /// export produced by somebody else's test run.
+    private struct SuppliedHarness {
+        let directory: TemporaryDirectory
+        let executor: FakeCommandExecutor
+        let exportPath: String
+        let output = OutputRecorder()
+        let errors = OutputRecorder()
+
+        var application: CliApplication {
+            CliApplication(
+                projectRoot: directory.path,
+                executor: executor,
+                standardOutput: output.write,
+                standardError: errors.write
+            )
+        }
+    }
+
+    private func makeSuppliedHarness(executionCount: Int) throws -> SuppliedHarness {
+        let directory = try TemporaryDirectory()
+        let sourcePath = try directory.write(Self.source, to: "App/Demo.swift")
+        try directory.write(Self.source, to: "AppTests/DemoTests.swift")
+
+        let exportPath = try directory.write(
+            """
+            {"data": [{"functions": [
+              {"name": "risky", "count": \(executionCount), "filenames": ["\(sourcePath)"],
+               "regions": [[2, 1, 6, 2, \(executionCount), 0, 0, 0]]}
+            ]}]}
+            """,
+            to: "coverage.json"
+        )
+        return SuppliedHarness(directory: directory, executor: FakeCommandExecutor(), exportPath: exportPath)
+    }
+
+    func testSuppliedCoverageScoresWithoutRunningTests() throws {
+        let harness = try makeSuppliedHarness(executionCount: 0)
+
+        let status = harness.application.run(arguments: ["--coverage", harness.exportPath])
+
+        XCTAssertEqual(status, ExitCode.thresholdExceeded)
+        XCTAssertTrue(harness.output.contains("Demo.risky(_:)"))
+        XCTAssertTrue(harness.output.contains("12.00"))
+        XCTAssertTrue(harness.executor.invocations.isEmpty)
+    }
+
+    func testSuppliedCoverageCanClearTheThreshold() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+
+        let status = harness.application.run(arguments: ["--coverage", harness.exportPath])
+
+        XCTAssertEqual(status, ExitCode.success)
+        XCTAssertTrue(harness.output.contains("100.00%"))
+    }
+
+    /// The test directory beside the target is not part of the measurement.
+    func testSuppliedCoverageSkipsTestDirectories() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+
+        _ = harness.application.run(arguments: ["--coverage", harness.exportPath])
+
+        XCTAssertFalse(harness.output.contains("AppTests"))
+    }
+
+    func testARelativeCoveragePathIsResolvedAgainstTheProjectRoot() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+
+        let status = harness.application.run(arguments: ["--coverage", "coverage.json"])
+
+        XCTAssertEqual(status, ExitCode.success)
+        XCTAssertTrue(harness.output.contains("100.00%"))
+    }
+
+    func testAnUnreadableSuppliedExportIsAUsageError() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+
+        let status = harness.application.run(arguments: ["--coverage", harness.directory.path("gone.json")])
+
+        XCTAssertEqual(status, ExitCode.usageError)
+        XCTAssertTrue(harness.errors.contains("cannot read coverage export"))
+    }
+
+    func testSourceChangedAfterTheExportIsCalledOut() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(60)],
+            ofItemAtPath: harness.directory.path("App/Demo.swift")
+        )
+
+        let status = harness.application.run(arguments: ["--coverage", harness.exportPath])
+
+        XCTAssertEqual(status, ExitCode.success)
+        XCTAssertTrue(harness.errors.contains("1 source file(s) changed after coverage.json"))
+    }
+
+    func testAnUpToDateExportSaysNothingAboutStaleness() throws {
+        let harness = try makeSuppliedHarness(executionCount: 3)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(60)],
+            ofItemAtPath: harness.exportPath
+        )
+
+        _ = harness.application.run(arguments: ["--coverage", harness.exportPath])
+
+        XCTAssertFalse(harness.errors.contains("changed after"))
+    }
+
     func testCoverageIsGeneratedOncePerPackage() throws {
         let harness = try makeHarness(executionCount: 7)
         try harness.directory.write(Self.source, to: "Sources/Demo/Other.swift")

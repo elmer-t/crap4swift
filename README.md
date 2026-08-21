@@ -41,6 +41,7 @@ swift build -c release
 .build/release/crap4swift --changed  # only what git says you touched
 .build/release/crap4swift Sources/MyLib/Parser.swift
 .build/release/crap4swift Packages/Networking
+.build/release/crap4swift --coverage build/coverage.json   # someone else ran the tests
 .build/release/crap4swift --help
 ```
 
@@ -49,6 +50,42 @@ Or during development: `swift run crap4swift --changed`.
 For each SwiftPM package owning a selected file, crap4swift deletes stale
 coverage artifacts, runs `swift test --enable-code-coverage`, reads the llvm-cov
 JSON export SwiftPM produces, and scores every method in the selection.
+
+## Projects SwiftPM does not build
+
+`--coverage` takes an llvm-cov export that already exists and skips the test run
+entirely. That is the whole of the support for Xcode projects, Bazel workspaces
+and anything else: the scoring was never SwiftPM-specific, only the part that
+ran the tests, and that is the part every build system already does its own way.
+
+A project with no `Sources` directory is scanned from its root instead, minus
+its test directories and package manifests — so an Xcode layout of
+`MyApp/` beside `MyAppTests/` needs no configuration.
+
+For an Xcode project, produce the export once and hand it over:
+
+```sh
+xcodebuild -scheme MyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -enableCodeCoverage YES -derivedDataPath DD test
+
+xcrun llvm-cov export \
+  -instr-profile DD/Build/ProfileData/*/Coverage.profdata \
+  DD/Build/Products/Debug-iphonesimulator/MyApp.app/MyApp.debug.dylib \
+  > coverage.json
+
+crap4swift --coverage coverage.json MyApp
+```
+
+Export from the binary that holds the code. For an app built with a debug
+dylib that is `MyApp.app/MyApp.debug.dylib`, not the small `MyApp` stub beside
+it — point llvm-cov at the stub and you get a clean, plausible report of
+nothing at all.
+
+Coverage that came from elsewhere can go stale in a way generated coverage
+cannot, so crap4swift compares modification times and says so on stderr when a
+source file is newer than the export. The scores still print: they are a true
+statement about the code as it was measured, which is not the same as the code
+in front of you.
 
 Exit codes: `0` clean, `1` usage or execution error, `2` threshold exceeded —
 so it drops straight into CI as a gate.
@@ -68,7 +105,7 @@ CRAP threshold exceeded: 110.00 > 8.00
 ```
 
 The tool scores itself too — `swift run crap4swift` — which is the honest way to
-find out whether a quality gate is worth keeping. It passes its own: 102
+find out whether a quality gate is worth keeping. It passes its own: 117
 methods, none over 8.0.
 
 ## How complexity is counted
@@ -119,6 +156,7 @@ Sources/Crap4SwiftCore/
   ChangedFileDetector.swift    git status --porcelain
   PackageRootFinder.swift      nearest Package.swift, the module analog
   CoverageRunner.swift         clean, run tests, locate the export
+  SuppliedCoverage.swift       read an export somebody else produced
   LlvmCovCoverageParser.swift  llvm.coverage.json.export reader
   CoverageData.swift           positional coverage attribution
   SwiftMethodParser.swift      SwiftSyntax walk that finds scorable units

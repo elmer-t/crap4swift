@@ -25,6 +25,47 @@ final class CliArgumentsParserTests: XCTestCase {
         XCTAssertEqual(mode, .paths(["Sources/A.swift", "Packages/Lib"]))
     }
 
+    func testCoverageOptionTakesTheFollowingArgument() throws {
+        let arguments = try CliArgumentsParser.parse(["--coverage", "build/cov.json"])
+
+        XCTAssertEqual(arguments.coveragePath, "build/cov.json")
+        XCTAssertEqual(arguments.mode, .all)
+    }
+
+    func testCoverageOptionAlsoTakesAnAttachedValue() throws {
+        XCTAssertEqual(
+            try CliArgumentsParser.parse(["--coverage=build/cov.json"]).coveragePath,
+            "build/cov.json"
+        )
+    }
+
+    func testCoverageCombinesWithPathsAndWithChanged() throws {
+        let paths = try CliArgumentsParser.parse(["--coverage", "cov.json", "WadNav"])
+        XCTAssertEqual(paths.mode, .paths(["WadNav"]))
+        XCTAssertEqual(paths.coveragePath, "cov.json")
+
+        let changed = try CliArgumentsParser.parse(["--changed", "--coverage", "cov.json"])
+        XCTAssertEqual(changed.mode, .changed)
+        XCTAssertEqual(changed.coveragePath, "cov.json")
+    }
+
+    /// The value is taken verbatim: a file may legitimately be named `--odd`,
+    /// and the argument after `--coverage` is a value, not a flag.
+    func testTheValueAfterCoverageIsNotParsedAsAFlag() throws {
+        XCTAssertEqual(try CliArgumentsParser.parse(["--coverage", "--changed"]).coveragePath, "--changed")
+    }
+
+    func testCoverageWithoutAValueIsRejected() {
+        XCTAssertThrowsError(try CliArgumentsParser.parse(["--coverage"])) { error in
+            XCTAssertEqual(error as? Crap4SwiftError, .missingOptionValue("--coverage"))
+        }
+    }
+
+    func testNoCoverageIsTheDefault() throws {
+        XCTAssertNil(try CliArgumentsParser.parse([]).coveragePath)
+        XCTAssertNil(try CliArgumentsParser.parse(["--changed"]).coveragePath)
+    }
+
     func testUnknownOptionIsRejected() {
         XCTAssertThrowsError(try CliArgumentsParser.parse(["--nope"])) { error in
             XCTAssertEqual(error as? Crap4SwiftError, .unknownOption("--nope"))

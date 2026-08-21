@@ -13,7 +13,13 @@ public enum CliMode: Equatable {
 
 public struct CliArguments: Equatable {
     public let mode: CliMode
-    public init(mode: CliMode) {
+    /// An llvm-cov export to score against, instead of generating one.
+    /// Orthogonal to the mode: what to measure and how it was measured are
+    /// two questions.
+    public let coveragePath: String?
+
+    public init(mode: CliMode, coveragePath: String? = nil) {
         self.mode = mode
+        self.coveragePath = coveragePath
     }
 }
