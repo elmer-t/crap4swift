@@ -179,3 +179,13 @@ Swift 5.9 or newer, on macOS or Linux. The only dependency is
 against Swift 6.0 with swift-syntax 602.0.0.
 
 Xcode projects and `.xcresult` bundles are out of scope; the tool speaks SwiftPM.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). Use it for anything, commercial included; it
+comes with no warranty of any kind.
+
+The CRAP metric is Alberto Savoia and Bob Evans' (Agitar, 2007). This is an
+independent Swift implementation written against the contract of Robert C.
+Martin's [`crap4java`](https://github.com/unclebob/crap4java), which carries no
+license of its own and shares no code with this one.
